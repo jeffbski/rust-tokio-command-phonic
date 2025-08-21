@@ -1,0 +1,15 @@
+[package]
+name = "rust-tokio-command-phonic"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.99"
+futures = { version = "0.3.31", features = ["default"] }
+phonic = "0.7.1"
+tokio = { version = "1.47.1", features = [
+    "macros",
+    "process",
+    "rt",
+    "rt-multi-thread",
+] }

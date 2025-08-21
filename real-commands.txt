@@ -1,0 +1,7 @@
+cd /Users/jeff/projects/univ-csv-stats; just bench-run-cli-python /Users/jeff/Downloads/ibm-trans-anti-money-laundering/LI-Large_Trans.csv
+cd /Users/jeff/projects/univ-csv-stats; just bench-run-cli-python-native /Users/jeff/Downloads/ibm-trans-anti-money-laundering/LI-Large_Trans.csv
+cd /Users/jeff/projects/univ-csv-stats; just bench-run-cli-nodejs /Users/jeff/Downloads/ibm-trans-anti-money-laundering/LI-Large_Trans.csv
+cd /Users/jeff/projects/univ-csv-stats; just bench-run-cli-nodejs-native /Users/jeff/Downloads/ibm-trans-anti-money-laundering/LI-Large_Trans.csv
+cd /Users/jeff/projects/univ-csv-stats; just bench-run-cli /Users/jeff/Downloads/ibm-trans-anti-money-laundering/LI-Large_Trans.csv
+cd /Users/jeff/projects/csv-stats-polars-python; /usr/bin/time -l -h -p uv run main.py -c "Amount Received" -f /Users/jeff/Downloads/ibm-trans-anti-money-laundering/LI-Large_Trans.csv
+cd /Users/jeff/projects/csv-stats-polars-rust; /usr/bin/time -l -h -p ./target/release/csv-stats-polars-rust --file-path /Users/jeff/Downloads/ibm-trans-anti-money-laundering/LI-Large_Trans.csv

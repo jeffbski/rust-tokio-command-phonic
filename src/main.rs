@@ -2,8 +2,11 @@ use anyhow::{Result, bail};
 use clap::Parser;
 use futures::StreamExt;
 use phonic::{DefaultOutputDevice, FilePlaybackOptions, OutputDevice, Player};
-use std::sync::{Arc, Once};
-use tokio::{process::Command, sync::Mutex};
+use std::sync::Arc;
+use tokio::{
+    process::Command,
+    sync::{Mutex, OnceCell},
+};
 
 /// A simple program that runs commands in parallel, plays a sound on start,
 /// and plays another sound when the first command finishes.
@@ -23,7 +26,7 @@ struct Args {
     finish_sound: std::path::PathBuf,
 }
 
-static WINNER: Once = Once::new();
+static WINNER: OnceCell<()> = OnceCell::const_new();
 
 async fn run_cmd(arg: String) -> Result<String> {
     let out = Command::new("sh").arg("-c").arg(arg).output().await?;
@@ -66,32 +69,37 @@ async fn main() -> Result<()> {
     let results: Vec<Result<String>> = futures::stream::iter(cmds)
         .then(|cmd| async move { run_cmd(cmd) }) // Produce futures
         .buffer_unordered(cmd_len) // Run all cmds at once
-        .then(|result| async move {
-            println!("then {result:?}");
-            result
-        })
-        .inspect(move |x| {
-            println!("{x:?}");
-            // Clone Arcs to be moved into the `call_once` closure.
+        .then(|result| {
+            // Clone Arcs for use in the async block.
             let player = Arc::clone(&player_clone);
             let args = Arc::clone(&args_clone);
-            WINNER.call_once(move || {
-                println!("Winner!!");
-                // We must spawn a new task because `call_once` is sync, but `player.lock()` is async.
-                tokio::spawn(async move {
-                    let mut p = player.lock().await;
-                    // Stop all playing files to avoid clicks.
-                    p.stop_all_sources().unwrap();
+            async move {
+                println!("Finished: {result:?}");
 
-                    // Play the finish sound.
-                    p.play_file(&args.finish_sound, FilePlaybackOptions::default())
-                        .unwrap();
-                });
-            });
+                // The first command to finish will initialize the OnceCell.
+                WINNER
+                    .get_or_init(|| async {
+                        println!("Winner!!");
+                        let mut p = player.lock().await;
+                        // Stop the startup sound.
+                        p.stop_all_sources().expect("Failed to stop sources");
+
+                        // Play the finish sound.
+                        p.play_file(&args.finish_sound, FilePlaybackOptions::default())
+                            .expect("Failed to play finish sound");
+                    })
+                    .await;
+
+                result
+            }
         })
         .collect()
         .await;
 
-    println!("{:?}", results);
+    println!("All commands finished: {:?}", results);
+
+    // Give the final sound a moment to play before exiting.
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
     Ok(())
 }

@@ -72,7 +72,7 @@ async fn main() -> Result<()> {
     let player_clone = Arc::clone(&player);
     let args_clone = Arc::clone(&args);
 
-    let results: Vec<Result<String>> = futures::stream::iter(cmds)
+    let count = futures::stream::iter(cmds)
         .then(|cmd| async move { run_cmd(cmd) }) // Produce futures
         .buffer_unordered(cmd_len) // Run all cmds at once
         .then(|result| {
@@ -103,10 +103,10 @@ async fn main() -> Result<()> {
                 result
             }
         })
-        .collect()
+        .count()
         .await;
 
-    println!("All commands finished: {:?}", results);
+    println!("All commands finished: {count}");
 
     // Give the final sound a moment to play before exiting.
     if args.finish_sound.is_some() {

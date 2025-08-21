@@ -19,11 +19,11 @@ struct Args {
 
     /// Path to the sound file to play on start.
     #[arg(short, long)]
-    start_sound: std::path::PathBuf,
+    start_sound: Option<std::path::PathBuf>,
 
     /// Path to the sound file to play when the first command finishes.
     #[arg(short, long)]
-    finish_sound: std::path::PathBuf,
+    finish_sound: Option<std::path::PathBuf>,
 }
 
 static WINNER: OnceCell<()> = OnceCell::const_new();
@@ -50,10 +50,12 @@ async fn main() -> Result<()> {
     let player = Arc::new(Mutex::new(Player::new(device.sink(), None)));
 
     // Play the start sound.
-    player
-        .lock()
-        .await
-        .play_file(&args.start_sound, FilePlaybackOptions::default())?;
+    if let Some(start_sound) = &args.start_sound {
+        player
+            .lock()
+            .await
+            .play_file(start_sound, FilePlaybackOptions::default())?;
+    }
 
     let commands_str = std::fs::read_to_string(&args.command_file)?;
     let cmds: Vec<String> = commands_str
@@ -85,8 +87,10 @@ async fn main() -> Result<()> {
                         p.stop_all_sources().expect("Failed to stop sources");
 
                         // Play the finish sound.
-                        p.play_file(&args.finish_sound, FilePlaybackOptions::default())
-                            .expect("Failed to play finish sound");
+                        if let Some(finish_sound) = &args.finish_sound {
+                            p.play_file(finish_sound, FilePlaybackOptions::default())
+                                .expect("Failed to play finish sound");
+                        }
                     })
                     .await;
 
@@ -99,7 +103,11 @@ async fn main() -> Result<()> {
     println!("All commands finished: {:?}", results);
 
     // Give the final sound a moment to play before exiting.
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    if args.finish_sound.is_some() {
+        if args.finish_sound.is_some() {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        }
+    }
 
     Ok(())
 }

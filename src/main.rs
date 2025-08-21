@@ -30,6 +30,7 @@ static WINNER: OnceCell<()> = OnceCell::const_new();
 
 async fn run_cmd(arg: String) -> Result<String> {
     let out = Command::new("sh").arg("-c").arg(arg).output().await?;
+
     if !out.status.success() {
         bail!(
             "exit {}: {}",
@@ -37,7 +38,10 @@ async fn run_cmd(arg: String) -> Result<String> {
             String::from_utf8_lossy(&out.stderr)
         );
     }
-    Ok(String::from_utf8_lossy(&out.stdout).to_string())
+
+    let mut combined_output = out.stdout;
+    combined_output.extend(out.stderr);
+    Ok(String::from_utf8_lossy(&combined_output).to_string())
 }
 
 #[tokio::main]
@@ -76,23 +80,25 @@ async fn main() -> Result<()> {
             let player = Arc::clone(&player_clone);
             let args = Arc::clone(&args_clone);
             async move {
-                println!("Finished: {result:?}");
+                if let Ok(output) = &result {
+                    // The first command to finish will initialize the OnceCell.
+                    WINNER
+                        .get_or_init(|| async {
+                            println!("Winner!!");
+                            let mut p = player.lock().await;
+                            // Stop the startup sound.
+                            p.stop_all_sources().expect("Failed to stop sources");
 
-                // The first command to finish will initialize the OnceCell.
-                WINNER
-                    .get_or_init(|| async {
-                        println!("Winner!!");
-                        let mut p = player.lock().await;
-                        // Stop the startup sound.
-                        p.stop_all_sources().expect("Failed to stop sources");
+                            // Play the finish sound.
+                            if let Some(finish_sound) = &args.finish_sound {
+                                p.play_file(finish_sound, FilePlaybackOptions::default())
+                                    .expect("Failed to play finish sound");
+                            }
+                        })
+                        .await;
 
-                        // Play the finish sound.
-                        if let Some(finish_sound) = &args.finish_sound {
-                            p.play_file(finish_sound, FilePlaybackOptions::default())
-                                .expect("Failed to play finish sound");
-                        }
-                    })
-                    .await;
+                    println!("{output}");
+                }
 
                 result
             }
@@ -104,9 +110,7 @@ async fn main() -> Result<()> {
 
     // Give the final sound a moment to play before exiting.
     if args.finish_sound.is_some() {
-        if args.finish_sound.is_some() {
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-        }
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
     }
 
     Ok(())

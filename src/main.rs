@@ -1,11 +1,13 @@
 use anyhow::{Result, bail};
 use clap::Parser;
+use crossbeam_channel::bounded;
 use futures::StreamExt;
-use phonic::{DefaultOutputDevice, FilePlaybackOptions, OutputDevice, Player};
+use phonic::{DefaultOutputDevice, FilePlaybackOptions, OutputDevice, PlaybackStatusEvent, Player};
 use std::sync::Arc;
 use tokio::{
     process::Command,
     sync::{Mutex, OnceCell},
+    task::{self, JoinHandle},
 };
 
 /// A simple program that runs commands in parallel, plays a sound on start,
@@ -44,14 +46,82 @@ async fn run_cmd(arg: String) -> Result<String> {
     Ok(String::from_utf8_lossy(&combined_output).to_string())
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    let args = Arc::new(Args::parse());
+struct PlayerExt<T> {
+    player: Arc<Mutex<Player>>,
+    task_join_handle: JoinHandle<T>,
+}
+
+fn create_player(audio_to_play_count: i32) -> Result<PlayerExt<usize>> {
+    // Create a channel to receive events from the player.
+    let (playback_status_sender, playback_status_receiver) = bounded(32);
+    let status_join_handle = task::spawn_blocking(move || {
+        playback_status_receiver.iter()
+            // debug output of the status of the player
+            .inspect(|event| {
+                    match event {
+                        PlaybackStatusEvent::Position {
+                            id,
+                            path,
+                            context,
+                            position,
+                        } => {
+                            println!(
+                                "event Position: id:{id}, path:{path}, context:{context:?}, position:{position:?}"
+                            );
+                        }
+                        PlaybackStatusEvent::Stopped {
+                            id,
+                            path,
+                            context,
+                            exhausted,
+                        } => {
+                            println!(
+                                "event Stopped: id:{id}, path:{path}, context:{context:?}, exhausted: {exhausted}"
+                            );
+                        }
+                    }
+                })
+                // filter down to only the Stopped events
+                .filter(|event| {
+                    match event {
+                        PlaybackStatusEvent::Stopped { .. } => true,
+                        _ => false
+                    }
+                })
+                // we can exit once we have received the expected stopped events
+                .take(audio_to_play_count as usize)
+                .count() // we don't really need the count, just using to drive iterator to end
+    });
 
     // Open the default audio device.
     let device = DefaultOutputDevice::open()?;
+
     // Create a player and wrap it in an Arc<Mutex<>> for safe sharing across threads.
-    let player = Arc::new(Mutex::new(Player::new(device.sink(), None)));
+    let player = Arc::new(Mutex::new(Player::new(
+        device.sink(),
+        Some(playback_status_sender),
+    )));
+    Ok(PlayerExt {
+        player,
+        task_join_handle: status_join_handle,
+    })
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let args = Arc::new(Args::parse());
+    let mut audio_to_play_count = 0;
+    if args.start_sound.is_some() {
+        audio_to_play_count += 1;
+    }
+    if args.finish_sound.is_some() {
+        audio_to_play_count += 1;
+    }
+
+    let PlayerExt {
+        player,
+        task_join_handle,
+    } = create_player(audio_to_play_count)?;
 
     // Play the start sound.
     if let Some(start_sound) = &args.start_sound {
@@ -79,21 +149,29 @@ async fn main() -> Result<()> {
             // Clone Arcs for use in the async block.
             let player = Arc::clone(&player_clone);
             let args = Arc::clone(&args_clone);
+
             async move {
                 if let Ok(output) = &result {
                     // The first command to finish will initialize the OnceCell.
                     WINNER
                         .get_or_init(|| async {
                             println!("Winner!!");
-                            let mut p = player.lock().await;
                             // Stop the startup sound.
-                            p.stop_all_sources().expect("Failed to stop sources");
+                            player
+                                .lock()
+                                .await
+                                .stop_all_sources()
+                                .expect("Failed to stop audio sources");
 
                             // Play the finish sound.
                             if let Some(finish_sound) = &args.finish_sound {
-                                p.play_file(finish_sound, FilePlaybackOptions::default())
+                                player
+                                    .lock()
+                                    .await
+                                    .play_file(finish_sound, FilePlaybackOptions::default())
                                     .expect("Failed to play finish sound");
                             }
+                            ()
                         })
                         .await;
 
@@ -108,10 +186,6 @@ async fn main() -> Result<()> {
 
     println!("All commands finished: {count}");
 
-    // Give the final sound a moment to play before exiting.
-    if args.finish_sound.is_some() {
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-    }
-
+    task_join_handle.await?; // join to wait if audio has not yet finished playing
     Ok(())
 }

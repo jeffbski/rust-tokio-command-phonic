@@ -189,3 +189,21 @@ async fn main() -> Result<()> {
     task_join_handle.await?; // join to wait if audio has not yet finished playing
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_run_cmd_success() {
+        let result = run_cmd("echo 'hello'".to_string()).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().trim(), "hello");
+    }
+
+    #[tokio::test]
+    async fn test_run_cmd_failure() {
+        let result = run_cmd("exit 1".to_string()).await;
+        assert!(result.is_err());
+    }
+}

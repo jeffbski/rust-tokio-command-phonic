@@ -6,6 +6,7 @@ A rust project which launches tokio commands concurrently and plays audio on sta
 
 A simple program that runs commands in parallel, plays a sound on start, and plays another sound when the first command finishes
 
+```
 Usage: rust-tokio-command-phonic [OPTIONS] --command-file <COMMAND_FILE>
 
 Options:
@@ -14,9 +15,11 @@ Options:
   -f, --finish-sound <FINISH_SOUND>  Path to the sound file to play when the first command finishes
   -h, --help                         Print help
   -V, --version                      Print version
+```
 
 ## Justfile
 
+```
 > just -l
 
 Available recipes:
@@ -27,3 +30,4 @@ Available recipes:
     run             # run with default commands and sounds from commands.txt
     run-silent      # run with no sound from commands.txt
     test            # build debug version and run tests
+```
